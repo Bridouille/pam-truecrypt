@@ -1,0 +1,30 @@
+NAME	=	test.so
+
+SRCS	=	module.c \
+
+OBJS	=	$(SRCS:.c=.o)
+
+CFLAGS	=	-Wall -Wextra -fPIC
+
+LDFLAGS	=	-lpam -lpam_misc -shared
+
+CC	=	gcc
+
+RM	=	rm -f
+
+$(NAME):	$(OBJS)
+		$(CC) -o $(NAME) $(SRCS) $(LDFLAGS)
+
+all:	$(NAME)
+
+#module:
+#	$(CC) -c -fPIC module.c -o module.o
+#	$(CC) module.o -shared -o test.so
+
+clean:
+	$(RM) $(OBJS)
+
+fclean:	clean
+	$(RM) $(NAME)
+
+re: fclean all
