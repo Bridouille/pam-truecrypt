@@ -1,4 +1,4 @@
-NAME	=	test.so
+NAME	=	my_module.so
 
 SRCS	=	module.c \
 
