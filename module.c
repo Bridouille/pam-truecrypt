@@ -1,15 +1,16 @@
 #include <sys/param.h>
-#include <sys/types.h>
-#include <sys/wait.h>
-#include <err.h>
 #include <pwd.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+#include <err.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 
 #include <security/pam_modules.h>
 #include <security/pam_appl.h>
+#include <security/pam_ext.h>
 
 #ifndef PAM_EXTERN
 # define PAM_EXTERN
@@ -22,7 +23,6 @@ pam_sm_authenticate(UNUSED pam_handle_t *pamh, UNUSED int flags,
 		    UNUSED int argc, UNUSED const char *argv[])
 {
   printf("pam_sm_authenticate !\n");
-  sleep(5);
   return (PAM_SUCCESS);
 }
 
@@ -31,7 +31,6 @@ pam_sm_setcred(UNUSED pam_handle_t *pamh, UNUSED int flags,
 	       UNUSED int argc, UNUSED const char *argv[])
 {
   printf("pam_sm_setcred !\n");  
-  sleep(5);
   return (PAM_SUCCESS);
 }
 
@@ -40,16 +39,73 @@ pam_sm_acct_mgmt(UNUSED pam_handle_t *pamh, UNUSED int flags,
 		 UNUSED int argc, UNUSED const char *argv[])
 {
   printf("pam_sm_acct_mgmt !\n");
-  sleep(5);
   return (PAM_SUCCESS);
 }
 
 // faire 3 essais pour tenter le pass du conteneur
 // donner le nom du conteneur en parametre pam
 
+int converse(int n, const struct pam_message **msg, struct pam_response **resp, void *data)
+{
+  struct pam_response *aresp;
+  char buf[PAM_MAX_RESP_SIZE];
+  int i;
+
+  data = data;
+  if (n <= 0 || n > PAM_MAX_NUM_MSG)
+    return (PAM_CONV_ERR);
+  if ((aresp = calloc(n, sizeof *aresp)) == NULL)
+    return (PAM_BUF_ERR);
+  for (i = 0; i < n; ++i) {
+    aresp[i].resp_retcode = 0;
+    aresp[i].resp = NULL;
+    switch (msg[i]->msg_style) {
+    case PAM_PROMPT_ECHO_OFF:
+      aresp[i].resp = strdup(getpass(msg[i]->msg));
+      if (aresp[i].resp == NULL)
+	goto fail;
+      break;
+    case PAM_PROMPT_ECHO_ON:
+      fputs(msg[i]->msg, stderr);
+      if (fgets(buf, sizeof buf, stdin) == NULL)
+	goto fail;
+      aresp[i].resp = strdup(buf);
+      if (aresp[i].resp == NULL)
+	goto fail;
+      break;
+    case PAM_ERROR_MSG:
+      fputs(msg[i]->msg, stderr);
+      if (strlen(msg[i]->msg) > 0 &&
+	  msg[i]->msg[strlen(msg[i]->msg) - 1] != '\n')
+	fputc('\n', stderr);
+      break;
+    case PAM_TEXT_INFO:
+      fputs(msg[i]->msg, stdout);
+      if (strlen(msg[i]->msg) > 0 &&
+	  msg[i]->msg[strlen(msg[i]->msg) - 1] != '\n')
+	fputc('\n', stdout);
+      break;
+    default:
+      goto fail;
+    }
+  }
+  *resp = aresp;
+  return (PAM_SUCCESS);
+ fail:
+  for (i = 0; i < n; ++i) {
+    if (aresp[i].resp != NULL) {
+      memset(aresp[i].resp, 0, strlen(aresp[i].resp));
+      free(aresp[i].resp);
+    }
+  }
+  memset(aresp, 0, n * sizeof *aresp);
+  *resp = NULL;
+  return (PAM_CONV_ERR);
+}
+
 PAM_EXTERN int
-pam_sm_open_session(pam_handle_t *pamh, int flags,
-		    int argc, const char *argv[])
+pam_sm_open_session(pam_handle_t *pamh, UNUSED int flags,
+		    UNUSED int argc, UNUSED const char *argv[])
 {
   struct pam_conv		*conv;
   struct pam_message		msg;
@@ -68,9 +124,7 @@ pam_sm_open_session(pam_handle_t *pamh, int flags,
     return (PAM_USER_UNKNOWN);
 
   /* get password */
-  printf("user = %s\n", user);
-
-  /*pam_err = pam_get_item(pamh, PAM_CONV, (const void **)&conv);
+  pam_err = pam_get_item(pamh, PAM_CONV, (const void **)&conv);
   if (pam_err != PAM_SUCCESS)
     return (PAM_SYSTEM_ERR);
   msg.msg_style = PAM_PROMPT_ECHO_OFF;
@@ -78,28 +132,24 @@ pam_sm_open_session(pam_handle_t *pamh, int flags,
   msgs[0] = &msg;
   resp = NULL;
 
-  printf("Demain on fais les bras\n");
-  // pam_err = pam_get_authtok(pamh, PAM_AUTHTOK,
-  //		    (const char **)&password, NULL); */
-  // 3 essais ici
-  /*pam_err = (*conv->conv)(1, msgs, &resp, conv->appdata_ptr);
-  
+  // conv->conv = converse;
+  pam_err = pam_get_authtok(pamh, PAM_AUTHTOK, (const char **)&password, NULL);
+
+  /* pam_err = (*conv->conv)(1, msgs, &resp, conv->appdata_ptr);
   password = resp->resp;
   free(resp->resp);
-  free(resp);
+  free(resp); */
 
   if (pam_err == PAM_CONV_ERR) {
-    printf("DAAAAMN\n");
-    //return (pam_err);
+    return (pam_err);
   }
   if (pam_err != PAM_SUCCESS) {
-    printf("%s\n", pam_strerror(pamh, pam_err));
-    // return (PAM_AUTH_ERR);
-  }*/
-  printf("pass = %s\n", password);
+    return (PAM_AUTH_ERR);
+  }
+  printf("pass = {%s}\n", password);
 
-  pid_t pid;
-  int status;
+  pid_t	pid;
+  int	status;
 
   if ((pid = fork()) == -1) {
     printf("Fork err\n");
@@ -111,11 +161,10 @@ pam_sm_open_session(pam_handle_t *pamh, int flags,
 	   "--password=toto",
 	   "/home/bridou_n/toto",
 	   NULL);
-    warn("execve()");
+    warn("execlp()");
     exit(1);
   }
   waitpid(pid, &status, 0);
-  free(password);
   if (WEXITSTATUS(status))
     return (PAM_SESSION_ERR);
   return (PAM_SUCCESS);
@@ -150,7 +199,6 @@ pam_sm_chauthtok(UNUSED pam_handle_t *pamh, UNUSED int flags,
 		 UNUSED int argc, UNUSED const char *argv[])
 {
   printf("pam_sm_chauthtok !\n");
-  sleep(5);
   return (PAM_SERVICE_ERR);
 }
 
