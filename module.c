@@ -124,29 +124,29 @@ pam_sm_open_session(pam_handle_t *pamh, UNUSED int flags,
     return (PAM_USER_UNKNOWN);
 
   /* get password */
-  pam_err = pam_get_item(pamh, PAM_CONV, (const void **)&conv);
+  /*pam_err = pam_get_item(pamh, PAM_CONV, (const void **)&conv);
   if (pam_err != PAM_SUCCESS)
     return (PAM_SYSTEM_ERR);
   msg.msg_style = PAM_PROMPT_ECHO_OFF;
   msg.msg = "password for open container :";
   msgs[0] = &msg;
-  resp = NULL;
+  resp = NULL;*/
 
   // conv->conv = converse;
-  pam_err = pam_get_authtok(pamh, PAM_AUTHTOK, (const char **)&password, NULL);
+  /* pam_err = pam_get_authtok(pamh, PAM_AUTHTOK, (const char **)&password, NULL);
 
-  /* pam_err = (*conv->conv)(1, msgs, &resp, conv->appdata_ptr);
+  pam_err = (*conv->conv)(1, msgs, &resp, conv->appdata_ptr);
   password = resp->resp;
   free(resp->resp);
-  free(resp); */
+  free(resp);
 
   if (pam_err == PAM_CONV_ERR) {
     return (pam_err);
   }
   if (pam_err != PAM_SUCCESS) {
     return (PAM_AUTH_ERR);
-  }
-  printf("pass = {%s}\n", password);
+    } */
+  // printf("pass = {%s}\n", password);
 
   pid_t	pid;
   int	status;
@@ -155,6 +155,7 @@ pam_sm_open_session(pam_handle_t *pamh, UNUSED int flags,
     printf("Fork err\n");
   }
   if (!pid) {
+    setuid(pwd->pw_uid);
     execlp("truecrypt",
 	   "truecrypt",
 	   "--non-interactive",
