@@ -129,12 +129,24 @@ pam_sm_close_session(UNUSED pam_handle_t *pamh, UNUSED int flags,
 {
   pid_t		pid;
   int		status;
+  int		pam_err;
+  struct passwd	*pwd;
+  const char	*user;
+
+  if ((pam_err = pam_get_user(pamh, &user, NULL)) != PAM_SUCCESS)
+    return (pam_err);
+  if ((pwd = getpwnam(user)) == NULL)
+    return (PAM_USER_UNKNOWN);
 
   if ((pid = fork()) == -1) {
     warn("fork()");
     return (PAM_SESSION_ERR);
   }
   if (!pid) {
+    if (setuid(pwd->pw_uid) == -1) {
+      warn("setuid()");
+      exit(PAM_SESSION_ERR);
+    }
     execlp("truecrypt", "truecrypt", "-d", NULL);
     warn("execlp()");
     exit(PAM_SESSION_ERR);
