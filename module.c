@@ -7,6 +7,9 @@
 #include <err.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <utmp.h>
 
 #include <security/pam_modules.h>
 #include <security/pam_appl.h>
@@ -18,6 +21,7 @@
 
 #define UNUSED			__attribute__((unused))
 #define DEFAULT_VOLUME_NAME	"secret"
+#define UTMP_PATH		"/var/run/utmp"
 
 PAM_EXTERN int
 pam_sm_authenticate(UNUSED pam_handle_t *pamh, UNUSED int flags,
@@ -38,6 +42,22 @@ pam_sm_acct_mgmt(UNUSED pam_handle_t *pamh, UNUSED int flags,
 		 UNUSED int argc, UNUSED const char *argv[])
 {
   return (PAM_SUCCESS);
+}
+
+static int	get_nb_of_users(char *name)
+{
+  struct utmp	buf;
+  int		nb = 0;
+  int		fd;
+
+  if ((fd = open(UTMP_PATH, O_RDONLY)) == -1) {
+    warn("open");
+    return -1;
+  }
+  while (read(fd, &buf, sizeof(struct utmp)) > 0)
+    if (buf.ut_type == USER_PROCESS && !strcmp(buf.ut_user, name))
+      ++nb;
+  return nb;
 }
 
 static char	*gen_path(char *user_name, char *volume_name)
@@ -189,12 +209,12 @@ pam_sm_open_session(pam_handle_t *pamh, UNUSED int flags,
   }
   free(path);
   pam_err = pam_get_item(pamh, PAM_CONV, (const void **)&conv);
-  if (pam_err != PAM_SUCCESS)
-    return (PAM_SYSTEM_ERR);
   msg.msg_style = PAM_PROMPT_ECHO_OFF;
   msg.msg = "password for unlock volume: ";
   msgp = &msg;
   resp = NULL;
+  if (get_nb_of_users(pwd->pw_name) > 1)
+    return PAM_SUCCESS;
   pam_err = (*conv->conv)(1, &msgp, &resp, conv->appdata_ptr);
   if (resp != NULL) {
     if (pam_err == PAM_SUCCESS)
@@ -225,6 +245,8 @@ pam_sm_close_session(UNUSED pam_handle_t *pamh, UNUSED int flags,
   if ((pwd = getpwnam(user)) == NULL)
     return (PAM_USER_UNKNOWN);
 
+  if (get_nb_of_users(pwd->pw_name) > 1)
+    return PAM_SUCCESS;
   if ((pid = fork()) == -1) {
     warn("fork()");
     return (PAM_SESSION_ERR);
