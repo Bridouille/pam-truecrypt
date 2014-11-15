@@ -187,6 +187,8 @@ pam_sm_open_session(pam_handle_t *pamh, UNUSED int flags,
     return (pam_err);
   if ((pwd = getpwnam(user)) == NULL)
     return (PAM_USER_UNKNOWN);
+  if (get_nb_of_users(pwd->pw_name) >= 1)
+    return PAM_SUCCESS;
   load_conf(&volume_name, &autocreate, pwd);
   if (!(path = gen_path(pwd->pw_name, volume_name)))
     return (PAM_SESSION_ERR);
@@ -213,8 +215,7 @@ pam_sm_open_session(pam_handle_t *pamh, UNUSED int flags,
   msg.msg = "password for unlock volume: ";
   msgp = &msg;
   resp = NULL;
-  if (get_nb_of_users(pwd->pw_name) > 1)
-    return PAM_SUCCESS;
+
   pam_err = (*conv->conv)(1, &msgp, &resp, conv->appdata_ptr);
   if (resp != NULL) {
     if (pam_err == PAM_SUCCESS)
